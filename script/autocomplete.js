@@ -11,7 +11,11 @@ app.directive('autocomplete', function() {
       searchParam: '=ngModel',
       suggestions: '=data',
       onType: '=onType',
-      onSelect: '=onSelect'
+      onSelect: '=onSelect',
+      lastSelectedItem: '&',
+      allowCustomInput: '&',
+      openSuggestions: '=',
+      dropDown: '='
     },
     controller: ['$scope', function($scope){
       // the index of the suggestions that's currently selected
@@ -43,10 +47,10 @@ app.directive('autocomplete', function() {
         if (oldValue === newValue || !oldValue) {
           return;
         }
+        $scope.searchFilter = $scope.searchParam;
 
         if(watching && typeof $scope.searchParam !== 'undefined' && $scope.searchParam !== null) {
-          $scope.completing = true;
-          $scope.searchFilter = $scope.searchParam;
+          // $scope.completing = true;
           $scope.selectedIndex = -1;
         }
 
@@ -79,21 +83,56 @@ app.directive('autocomplete', function() {
 
       // selecting a suggestion with RIGHT ARROW or ENTER
       $scope.select = function(suggestion){
+        watching = false;
         if(suggestion){
           $scope.searchParam = suggestion;
           $scope.searchFilter = suggestion;
           if($scope.onSelect)
             $scope.onSelect(suggestion);
         }
-        watching = false;
-        $scope.completing = false;
-        setTimeout(function(){watching = true;},1000);
+        setTimeout(function(){watching = true;},300);
         $scope.setIndex(-1);
       };
 
+      $scope.$watch('suggestions', function(newValue, oldValue) {
+        $scope.watchingDeactivation();
+      }, true);
 
+      $scope.$watch('openSuggestions', function(newValue, oldValue) {
+        if ($scope.openSuggestions) {
+          $scope.searchFilter = '';
+          $scope.completing = true;
+          watching = true;
+        } 
+      }, true);
+
+      var hasOpenSuggestionScope = false;
+      if ($scope.dropDown) {
+        hasOpenSuggestionScope = true;
+      };
+      
+      $scope.watchingDeactivation = function() {
+        watching = false;
+      }
+      $scope.watchingActivation = function() {
+        watching = true;
+      }
+
+      $scope.completingTrue = function() {
+        $scope.completing = true;
+        watching = true;
+        if (!$scope.openSuggestions && hasOpenSuggestionScope && $scope.suggestions.length > 0) {
+          $scope.openSuggestions = true;
+        }
+      };
     }],
     link: function(scope, element, attrs){
+
+      scope.$watch('openSuggestions', function() {
+        if (scope.openSuggestions) {
+          element.find(':input')[0].focus();
+        };
+      });
 
       var attr = '';
 
@@ -117,10 +156,11 @@ app.directive('autocomplete', function() {
 
       if (attrs.clickActivation) {
         element[0].onclick = function(e){
-          if(!scope.searchParam){
-            scope.completing = true;
+            scope.watchingActivation();
+            if (!scope.searchParam) {
+              scope.searchFilter = '';
+            }
             scope.$apply();
-          }
         };
       }
 
@@ -139,14 +179,30 @@ app.directive('autocomplete', function() {
         }
       }, true);
 
-      document.addEventListener("blur", function(e){
+      element.find(':input')[0].addEventListener("focus", function(e){
+        scope.completing = true;
+      }, true);
+
+      element.find(':input')[0].addEventListener("blur", function(e){
         // disable suggestions on blur
         // we do a timeout to prevent hiding it before a click event is registered
+        if (_.isFunction(scope.lastSelectedItem())) {
+          return
+        }
+        if (scope.allowCustomInput()) {
+          scope.searchParam = scope.lastSelectedItem();
+          scope.watchingDeactivation();
+        }
+        if (scope.openSuggestions) {
+          scope.openSuggestions = false;
+        }
+        scope.completing = false;
+
         setTimeout(function() {
-          scope.select();
           scope.setIndex(-1);
           scope.$apply();
         }, 200);
+        
       }, true);
 
       element[0].addEventListener("keydown",function (e){
@@ -176,6 +232,7 @@ app.directive('autocomplete', function() {
 
             break;
           case key.down:
+            scope.completing = true;
             index = scope.getIndex()+1;
             if(index<-1){
               index = l-1;
@@ -234,7 +291,8 @@ app.directive('autocomplete', function() {
             ng-model="searchParam"\
             placeholder="{{ attrs.placeholder }}"\
             class="{{ attrs.inputclass }}"\
-            id="{{ attrs.inputid }}"/>\
+            id="{{ attrs.inputid }}"\
+            ng-click="completingTrue()"/>\
           <ul ng-show="completing && suggestions.length>0">\
             <li\
               suggestion\
